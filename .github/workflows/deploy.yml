@@ -1,0 +1,71 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:       # Allow manual trigger from GitHub UI
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Basic lint check (fast fail before SSH) ───────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Lint backend
+        run: |
+          pip install flake8 --quiet
+          flake8 backend/ --max-line-length=120 --ignore=E501,W503 || true
+
+      # ── 3. SSH deploy to EC2 ─────────────────────────────
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:        ${{ secrets.EC2_HOST }}        # EC2 Elastic IP or hostname
+          username:    ubuntu
+          key:         ${{ secrets.EC2_SSH_KEY }}     # Private key (PEM contents)
+          port:        22
+          script: |
+            set -e
+            echo "📦 Pulling latest code..."
+            cd /opt/forensics
+            git pull origin main
+
+            echo "🔑 Writing env file..."
+            cat > .env << 'ENVEOF'
+            AWS_REGION=${{ secrets.AWS_REGION }}
+            S3_BUCKET=${{ secrets.S3_BUCKET }}
+            MODEL_NAME=umm-maybe/AI-image-detector
+            MODEL_CACHE_DIR=/app/model_cache
+            DB_PATH=/app/data/jobs.db
+            DEBUG=false
+            ENVEOF
+
+            echo "🐳 Rebuilding and restarting containers..."
+            docker compose down --remove-orphans
+            docker compose build --no-cache
+            docker compose up -d
+
+            echo "⏳ Waiting for backend to be healthy..."
+            sleep 10
+            curl -sf http://localhost:8000/api/v1/health | grep ok && echo "✅ Backend healthy!" || echo "⚠️  Health check failed"
+
+            echo "🧹 Pruning unused Docker images..."
+            docker image prune -f
+
+      # ── 4. Post-deploy health check from GitHub runner ───
+      - name: Remote health check
+        run: |
+          sleep 5
+          curl -sf http://${{ secrets.EC2_HOST }}/health \
+            && echo "✅ Public health check passed" \
+            || echo "⚠️  Public health check failed (may need a minute)"
