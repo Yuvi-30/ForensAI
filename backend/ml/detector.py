@@ -1,41 +1,31 @@
-import torch
+"""
+Uses HuggingFace pipeline for AI image detection.
+Model: umm-maybe/AI-image-detector
+"""
 from PIL import Image
-from transformers import ViTForImageClassification, ViTImageProcessor
-from core.config import settings
+from transformers import pipeline
 
-_model = None
-_processor = None
+_pipe = None
 
 def _load_model():
-    global _model, _processor
-    if _model is None:
-        _processor = ViTImageProcessor.from_pretrained(
-            settings.MODEL_NAME, cache_dir=settings.MODEL_CACHE_DIR
+    global _pipe
+    if _pipe is None:
+        _pipe = pipeline(
+            "image-classification",
+            model="umm-maybe/AI-image-detector",
+            model_kwargs={"cache_dir": "/app/model_cache"}
         )
-        _model = ViTForImageClassification.from_pretrained(
-            settings.MODEL_NAME, cache_dir=settings.MODEL_CACHE_DIR
-        )
-        _model.eval()
-    return _model, _processor
+    return _pipe
 
 def predict(image: Image.Image) -> dict:
-    """
-    Returns:
-        verdict: 'AI_GENERATED' | 'REAL'
-        confidence: float (0–1), probability of predicted class
-        logits: raw tensor (needed for Grad-CAM)
-    """
-    model, processor = _load_model()
-    inputs = processor(images=image.convert("RGB"), return_tensors="pt")
+    pipe = _load_model()
+    results = pipe(image.convert("RGB"))
 
-    with torch.no_grad():
-        outputs = model(**inputs)
+    # results = [{'label': 'artificial', 'score': 0.97}, {'label': 'nature', 'score': 0.03}]
+    scores = {r['label'].lower(): r['score'] for r in results}
 
-    logits = outputs.logits  # shape: (1, 2)
-    probs = torch.softmax(logits, dim=-1)[0]
-
-    fake_prob = probs[0].item()
-    real_prob = probs[1].item()
+    fake_prob = scores.get('artificial', scores.get('fake', 0.0))
+    real_prob = scores.get('nature', scores.get('real', 1.0 - fake_prob))
 
     if fake_prob > real_prob:
         verdict = "AI_GENERATED"
@@ -52,4 +42,6 @@ def predict(image: Image.Image) -> dict:
     }
 
 def get_model_and_processor():
-    return _load_model()
+    """Called by gradcam.py — returns underlying model + processor."""
+    pipe = _load_model()
+    return pipe.model, pipe.feature_extractor
