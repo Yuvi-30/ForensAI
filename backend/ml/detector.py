@@ -1,7 +1,3 @@
-"""
-Uses HuggingFace pipeline for AI image detection.
-Model: umm-maybe/AI-image-detector
-"""
 from PIL import Image
 from transformers import pipeline
 
@@ -12,7 +8,7 @@ def _load_model():
     if _pipe is None:
         _pipe = pipeline(
             "image-classification",
-            model="umm-maybe/AI-image-detector",
+            model="Organika/sdxl-detector",
             model_kwargs={"cache_dir": "/app/model_cache"}
         )
     return _pipe
@@ -20,12 +16,10 @@ def _load_model():
 def predict(image: Image.Image) -> dict:
     pipe = _load_model()
     results = pipe(image.convert("RGB"))
-
-    # results = [{'label': 'artificial', 'score': 0.97}, {'label': 'nature', 'score': 0.03}]
     scores = {r['label'].lower(): r['score'] for r in results}
 
-    fake_prob = scores.get('artificial', scores.get('fake', 0.0))
-    real_prob = scores.get('nature', scores.get('real', 1.0 - fake_prob))
+    fake_prob = scores.get('artificial', scores.get('sdxl', scores.get('fake', 0.0)))
+    real_prob = scores.get('real', scores.get('nature', 1.0 - fake_prob))
 
     if fake_prob > real_prob:
         verdict = "AI_GENERATED"
@@ -42,6 +36,5 @@ def predict(image: Image.Image) -> dict:
     }
 
 def get_model_and_processor():
-    """Called by gradcam.py — returns underlying model + processor."""
     pipe = _load_model()
     return pipe.model, pipe.feature_extractor

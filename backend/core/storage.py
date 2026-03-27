@@ -1,6 +1,6 @@
 import boto3
 import uuid
-from core.config import settings
+import os
 
 _s3 = None
 
@@ -9,32 +9,29 @@ def _get_client():
     if _s3 is None:
         _s3 = boto3.client(
             "s3",
-            region_name=settings.AWS_REGION,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=os.environ.get("AWS_REGION", "eu-north-1"),
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
         )
     return _s3
 
 def upload_bytes(data: bytes, s3_key: str, content_type: str = "image/png") -> str:
     s3 = _get_client()
-    s3.put_object(
-        Bucket=settings.S3_BUCKET,
-        Key=s3_key,
-        Body=data,
-        ContentType=content_type,
-    )
+    bucket = os.environ.get("S3_BUCKET")
+    s3.put_object(Bucket=bucket, Key=s3_key, Body=data, ContentType=content_type)
     return s3.generate_presigned_url(
         'get_object',
-        Params={'Bucket': settings.S3_BUCKET, 'Key': s3_key},
+        Params={'Bucket': bucket, 'Key': s3_key},
         ExpiresIn=3600
     )
 
 def upload_file(local_path: str, s3_key: str) -> str:
     s3 = _get_client()
-    s3.upload_file(local_path, settings.S3_BUCKET, s3_key)
+    bucket = os.environ.get("S3_BUCKET")
+    s3.upload_file(local_path, bucket, s3_key)
     return s3.generate_presigned_url(
         'get_object',
-        Params={'Bucket': settings.S3_BUCKET, 'Key': s3_key},
+        Params={'Bucket': bucket, 'Key': s3_key},
         ExpiresIn=3600
     )
 
