@@ -38,7 +38,8 @@ jobs:
             set -e
             echo "📦 Pulling latest code..."
             cd /opt/forensics
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             echo "🔑 Writing env file..."
             cat > .env << 'ENVEOF'
